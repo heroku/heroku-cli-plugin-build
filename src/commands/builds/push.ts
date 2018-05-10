@@ -1,6 +1,7 @@
 import {Command, flags} from '@oclif/command'
 
-export default class Hello extends Command {
+export default class Push extends Command {
+  static aliases = ['push']
   static description = 'describe the command here'
 
   static examples = [
@@ -20,7 +21,7 @@ hello world from ./src/hello.ts!
   static args = [{name: 'file'}]
 
   async run() {
-    const {args, flags} = this.parse(Hello)
+    const {args, flags} = this.parse(Push)
 
     const name = flags.name || 'world'
     this.log(`hello ${name} from ./src/commands/hello.ts`)
