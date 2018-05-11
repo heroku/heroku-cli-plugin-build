@@ -21,7 +21,7 @@ export default class Push extends Command {
     const {flags} = this.parse(Push)
     if (!this.heroku.auth) await this.heroku.login()
     if (await this.dirty()) {
-      this.warn(`dirty working tree\nSome files have been modified that are not committed to the git repository. See details with ${color.cmd('git status')}`)
+      this.warn(`dirty working tree\nSome files have been modified that are not committed to the git repository\nSee details with ${color.cmd('git status')}`)
     }
 
     await this.push(flags)
@@ -32,13 +32,14 @@ export default class Push extends Command {
     if (!auth) return this.error('not logged in')
     this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`])
     const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`], {
-      stdio: [0, 1, 'pipe'],
+      stdio: [0, 'pipe', 'pipe'],
       encoding: 'utf8',
     })
     cmd.stderr.setEncoding('utf8')
     let header = ''
     let body = ''
-    let recordError = true
+    let failed = false
+    cmd.stdout.on('data', (d: string) => process.stdout.write(d))
     cmd.stderr.pipe(new LineTransform()).on('data', (d: string) => {
       this.debug(d)
       if (d === 'Everything up-to-date') {
@@ -50,6 +51,25 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       }
       d = d.replace(/^remote: /, '')
       if (verbose) {
+        if (d.startsWith('----->')) {
+          let [, arrow, header] = d.match(/(----->)(.*)/)!
+          let c = color.bold
+          if (header.trim() === 'Build failed') {
+            failed = true
+            c = c.red
+          }
+          d = c(arrow + header)
+        }
+        if (d.toLowerCase().match(/^(error|fatal):/)) {
+          d = color.red(d)
+        }
+        let warning = d.match(/^\s*!\s+(.+)/)
+        if (warning) {
+          d = warning[1].trim()
+          let c = color.yellow
+          if (failed) c = color.red
+          d = ` ${c.bold('!')}     ${c(d)}`
+        }
         this.log(d)
         return
       }
@@ -57,6 +77,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       if (d.startsWith('----->')) {
         header = d.slice(7).trim().replace(/\.\.\.$/, '')
         if (header === 'Build failed') {
+          failed = true
           ux.action.stop(color.red.bold(`! ${header}`))
           return
         }
@@ -65,20 +86,35 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         body = ''
         return
       }
+      if (failed) {
+        if (d.match(/! {5}Push (rejected|failed)/)) {
+          // hide output after this message
+          failed = false
+          return
+        }
+        if (d.startsWith('!     ')) {
+          d = color.red(d.replace(/^! {5}/, '').trim())
+        }
+        body += d.trim() + '\n'
+        return
+      }
+      if (d.match(/(fatal|error):/i)) {
+        this.log(color.red(d.trim()))
+        return
+      }
       if (d.toLowerCase().startsWith('warning')) {
         this.warn(d.replace(/^warning/i, '').trim())
         return
       }
-      // hide output after this message
-      if (d.match(/! {5}Push (rejected|failed)/)) recordError = false
-      if (recordError) body += d + '\n'
       ux.action.status = d
     }).setEncoding('utf8')
     try {
       await cmd
     } catch (err) {
       if (!err.failed || !err.code) throw err
-      this.error(body.trim() || 'Build failed')
+      let msg = body.trim() || 'Build failed'
+      if (!verbose) msg += `\n\nSee full build output with ${color.cmd('heroku push --verbose')}`
+      this.error(msg)
     }
     ux.action.stop()
   }
