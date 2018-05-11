@@ -1,37 +1,65 @@
 import color from '@heroku-cli/color'
 import {Command, flags} from '@heroku-cli/command'
+import ux from 'cli-ux'
 import * as execa from 'execa'
+
+import LineTransform from '../../line_transform'
 
 export default class Push extends Command {
   static aliases = ['push']
   static description = 'deploy code to Heroku'
+  static hidden = true
 
   static flags = {
     help: flags.help({char: 'h'}),
     branch: flags.string({char: 'b', description: 'local branch to push', default: 'master', required: true}),
+    verbose: flags.boolean({char: 'v', description: 'show full build output'}),
   }
 
   async run() {
+    if (this.config.channel === 'stable') this.error('heroku push is only available on beta')
     const {flags} = this.parse(Push)
     if (!this.heroku.auth) await this.heroku.login()
     if (await this.dirty()) {
       this.warn(`dirty working tree\nSome files have been modified that are not committed to the git repository. See details with ${color.cmd('git status')}`)
     }
 
-    await this.push(flags.branch)
+    await this.push(flags)
   }
 
-  private async push(branch: string) {
+  private async push({branch, verbose}: {branch: string, verbose: boolean}) {
     const auth = this.heroku.auth
     if (!auth) return this.error('not logged in')
     this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`])
     const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`], {
-      stdio: [0, 'pipe', 2]
+      stdio: [0, 1, 'pipe'],
+      encoding: 'utf8',
     })
-    cmd.stdout.on('data', d => {
-      console.dir(d)
-    })
+    cmd.stderr.setEncoding('utf8')
+    cmd.stderr.pipe(new LineTransform()).on('data', (d: string) => {
+      this.debug(d)
+      if (d === 'Everything up-to-date') {
+        this.log(d)
+        this.warn(`No changes to push.
+To create a new release, make a change to the repository, stage them with ${color.cmd('git add FILE')} and commit them with ${color.cmd('git commit -m "modified FILE"')}. Then push again with ${color.cmd('heroku push')}
+To create an empty release with no changes, use ${color.cmd('git commit --allow-empty')}`)
+        return
+      }
+      d = d.replace(/^remote: /, '')
+      if (verbose) {
+        this.log(d)
+        return
+      }
+      d = d.trim()
+      if (d.startsWith('----->')) {
+        ux.action.stop()
+        ux.action.start(d.slice(7).trim().replace(/\.\.\.$/, ''))
+        return
+      }
+      ux.action.status = d
+    }).setEncoding('utf8')
     await cmd
+    ux.action.stop()
   }
 
   private async dirty() {
