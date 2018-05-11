@@ -27,7 +27,7 @@
     "tslint": "^5",
     "ypescript": "^2.8"
   },
-  "engines": {
+  "engnes": {
     "node": ">=8.0.0"
   },
   "files": [

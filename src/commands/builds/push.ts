@@ -36,6 +36,9 @@ export default class Push extends Command {
       encoding: 'utf8',
     })
     cmd.stderr.setEncoding('utf8')
+    let header = ''
+    let body = ''
+    let recordError = true
     cmd.stderr.pipe(new LineTransform()).on('data', (d: string) => {
       this.debug(d)
       if (d === 'Everything up-to-date') {
@@ -52,13 +55,27 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       }
       d = d.trim()
       if (d.startsWith('----->')) {
+        header = d.slice(7).trim().replace(/\.\.\.$/, '')
+        if (header === 'Build failed') {
+          ux.action.stop(color.red.bold(`! ${header}`))
+          return
+        }
         ux.action.stop()
-        ux.action.start(d.slice(7).trim().replace(/\.\.\.$/, ''))
+        ux.action.start(header)
+        body = ''
         return
       }
+      // hide output after this message
+      if (d.match(/! {5}Push (rejected|failed)/)) recordError = false
+      if (recordError) body += d + '\n'
       ux.action.status = d
     }).setEncoding('utf8')
-    await cmd
+    try {
+      await cmd
+    } catch (err) {
+      if (!err.failed || !err.code) throw err
+      this.error(body.trim())
+    }
     ux.action.stop()
   }
 
