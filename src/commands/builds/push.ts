@@ -5,14 +5,18 @@ import * as execa from 'execa'
 
 import LineTransform from '../../line_transform'
 
+const branch = execa.sync('git', ['branch']).stdout.replace(/^\* /, '')
+
 export default class Push extends Command {
   static aliases = ['push']
   static description = 'deploy code to Heroku'
   static hidden = true
 
   static flags = {
+    app: flags.app({required: true}),
+    remote: flags.remote(),
     help: flags.help({char: 'h'}),
-    branch: flags.string({char: 'b', description: 'local branch to push', default: 'master', required: true}),
+    branch: flags.string({char: 'b', description: 'local branch to push', default: branch, required: true}),
     verbose: flags.boolean({char: 'v', description: 'show full build output'}),
   }
 
@@ -27,11 +31,12 @@ export default class Push extends Command {
     await this.push(flags)
   }
 
-  private async push({branch, verbose}: {branch: string, verbose: boolean}) {
+  private async push({branch, verbose, app}: {branch: string, verbose: boolean, app: string}) {
     const auth = this.heroku.auth
     if (!auth) return this.error('not logged in')
-    this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`])
-    const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', 'heroku', `${branch}:master`], {
+    const remote = `https://git.heroku.com/${app}.git`
+    this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`])
+    const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`], {
       stdio: [0, 'pipe', 'pipe'],
       encoding: 'utf8',
     })
