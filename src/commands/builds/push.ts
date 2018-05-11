@@ -74,7 +74,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       await cmd
     } catch (err) {
       if (!err.failed || !err.code) throw err
-      this.error(body.trim())
+      this.error(body.trim() || 'Build failed')
     }
     ux.action.stop()
   }
