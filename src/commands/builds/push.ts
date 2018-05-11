@@ -24,8 +24,11 @@ export default class Push extends Command {
     if (this.config.channel === 'stable') this.error('heroku push is only available on beta')
     const {flags} = this.parse(Push)
     if (!this.heroku.auth) await this.heroku.login()
-    if (flags.branch === 'master' && currentBranch !== 'mater') {
+    if (flags.branch === 'master' && currentBranch !== 'master') {
       this.error(`Not on master branch.\nPush ${currentBranch} branch with ${color.cmd('heroku push --branch ' + currentBranch)}`)
+    }
+    if (flags.branch !== currentBranch) {
+      this.warn(`Pushing ${flags.branch} but currently on ${currentBranch}`)
     }
     if (await this.dirty()) {
       this.warn(`dirty working tree\nSome files have been modified that are not committed to the git repository\nSee details with ${color.cmd('git status')}`)
