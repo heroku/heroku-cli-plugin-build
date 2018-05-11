@@ -65,6 +65,10 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         body = ''
         return
       }
+      if (d.toLowerCase().startsWith('warning')) {
+        this.warn(d.replace(/^warning/i, '').trim())
+        return
+      }
       // hide output after this message
       if (d.match(/! {5}Push (rejected|failed)/)) recordError = false
       if (recordError) body += d + '\n'
