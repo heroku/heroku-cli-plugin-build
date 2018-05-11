@@ -5,7 +5,7 @@ import * as execa from 'execa'
 
 import LineTransform from '../../line_transform'
 
-const branch = execa.sync('git', ['branch']).stdout.replace(/^\* /, '')
+const currentBranch = execa.sync('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout
 
 export default class Push extends Command {
   static aliases = ['push']
@@ -16,7 +16,7 @@ export default class Push extends Command {
     app: flags.app({required: true}),
     remote: flags.remote(),
     help: flags.help({char: 'h'}),
-    branch: flags.string({char: 'b', description: 'local branch to push', default: branch, required: true}),
+    branch: flags.string({char: 'b', description: 'local branch to push', default: 'master', required: true}),
     verbose: flags.boolean({char: 'v', description: 'show full build output'}),
   }
 
@@ -24,6 +24,9 @@ export default class Push extends Command {
     if (this.config.channel === 'stable') this.error('heroku push is only available on beta')
     const {flags} = this.parse(Push)
     if (!this.heroku.auth) await this.heroku.login()
+    if (flags.branch === 'master' && currentBranch !== 'mater') {
+      this.error(`Not on master branch.\nPush ${currentBranch} branch with ${color.cmd('heroku push --branch ' + currentBranch)}`)
+    }
     if (await this.dirty()) {
       this.warn(`dirty working tree\nSome files have been modified that are not committed to the git repository\nSee details with ${color.cmd('git status')}`)
     }
