@@ -103,6 +103,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         return
       }
       if (d.toLowerCase().startsWith('warning')) {
+        if (d === 'Ignored scripts due to flag.') return
         this.warn(d.replace(/^warning/i, '').trim())
         return
       }
