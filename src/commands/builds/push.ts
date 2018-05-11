@@ -40,8 +40,8 @@ export default class Push extends Command {
     let body = ''
     let failed = false
     cmd.stdout.on('data', (d: string) => process.stdout.write(d))
-    cmd.stderr.pipe(new LineTransform()).on('data', (d: string) => {
-      this.debug(d)
+    let stderr = cmd.stderr.pipe(new LineTransform())
+    stderr.once('data', (d: string) => {
       if (d === 'Everything up-to-date') {
         this.log(d)
         this.warn(`No changes to push.
@@ -49,6 +49,9 @@ To create a new release, make a change to the repository, stage them with ${colo
 To create an empty release with no changes, use ${color.cmd('git commit --allow-empty')}`)
         return
       }
+    })
+    stderr.on('data', (d: string) => {
+      this.debug(d)
       d = d.replace(/^remote: /, '')
       if (verbose) {
         if (d.startsWith('----->')) {
@@ -88,12 +91,11 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       }
       if (failed) {
         if (d.match(/! {5}Push (rejected|failed)/)) {
-          // hide output after this message
-          failed = false
+          failed = false // hide output after this message
           return
         }
-        if (d.startsWith('!     ')) {
-          d = color.red(d.replace(/^! {5}/, '').trim())
+        if (d.startsWith('!\s+')) {
+          d = color.red(d.replace(/^!\s+/, '').trim())
         }
         body += d.trim() + '\n'
         return
@@ -105,6 +107,10 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
       if (d.toLowerCase().startsWith('warning')) {
         if (d === 'Ignored scripts due to flag.') return
         this.warn(d.replace(/^warning/i, '').trim())
+        return
+      }
+      if (d.match(/^!\s+/)) {
+        this.warn(d.replace(/^!\s+/, '').trim())
         return
       }
       ux.action.status = d
