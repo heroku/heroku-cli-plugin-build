@@ -34,6 +34,7 @@ export default class Push extends Command {
   private async push({branch, verbose, app}: {branch: string, verbose: boolean, app: string}) {
     const auth = this.heroku.auth
     if (!auth) return this.error('not logged in')
+    this.log(`Pushing to ${color.app(app)}`)
     const remote = `https://git.heroku.com/${app}.git`
     this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`])
     const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`], {
@@ -50,7 +51,7 @@ export default class Push extends Command {
       if (d === 'Everything up-to-date') {
         this.log(d)
         this.warn(`No changes to push.
-To create a new release, make a change to the repository, stage them with ${color.cmd('git add FILE')} and commit them with ${color.cmd('git commit -m "modified FILE"')}. Then push again with ${color.cmd('heroku push')}
+To create a new release, make a change to the repository, stage them with ${color.cmd('git add FILE')}, commit with ${color.cmd('git commit -m "modified FILE"')}, and push again with ${color.cmd('heroku push')}
 To create an empty release with no changes, use ${color.cmd('git commit --allow-empty')}`)
         return
       }
