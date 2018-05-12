@@ -18,6 +18,7 @@ export default class Push extends Command {
     help: flags.help({char: 'h'}),
     branch: flags.string({char: 'b', description: 'local branch to push', default: 'master', required: true}),
     verbose: flags.boolean({char: 'v', description: 'show full build output'}),
+    force: flags.boolean({char: 'f', description: 'force push to overwrite remote branch'}),
   }
 
   async run() {
@@ -37,13 +38,15 @@ export default class Push extends Command {
     await this.push(flags)
   }
 
-  private async push({branch, verbose, app}: {branch: string, verbose: boolean, app: string}) {
+  private async push({branch, verbose, app, force}: {branch: string, verbose: boolean, app: string, force: boolean}) {
     const auth = this.heroku.auth
     if (!auth) return this.error('not logged in')
     this.log(`Pushing to ${color.app(app)}`)
     const remote = `https://git.heroku.com/${app}.git`
-    this.debug('git %o', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`])
-    const cmd = execa('git', ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`], {
+    const args = ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`]
+    if (force) args.push('--force')
+    this.debug('git %o', args)
+    const cmd = execa('git', args, {
       stdio: [0, 'pipe', 'pipe'],
       encoding: 'utf8',
     })
@@ -112,8 +115,12 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         body += d.trim() + '\n'
         return
       }
-      if (d.match(/(fatal|error):/i)) {
+      if (d.match(/^(fatal|error):/i)) {
         this.log(color.red(d.trim()))
+        return
+      }
+      if (d.match(/^hint:/)) {
+        this.log(d.trim())
         return
       }
       if (d.toLowerCase().startsWith('warning')) {
