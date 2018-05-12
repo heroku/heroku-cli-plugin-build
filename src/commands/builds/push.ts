@@ -1,11 +1,13 @@
 import color from '@heroku-cli/color'
 import {Command, flags} from '@heroku-cli/command'
+import {CLIError} from '@oclif/errors'
 import ux from 'cli-ux'
 import * as execa from 'execa'
 
 import LineTransform from '../../line_transform'
 
 const currentBranch = execa.sync('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout
+const strip = require('strip-ansi')
 
 export default class Push extends Command {
   static aliases = ['push']
@@ -41,7 +43,11 @@ export default class Push extends Command {
   private async push({branch, verbose, app, force}: {branch: string, verbose: boolean, app: string, force: boolean}) {
     const auth = this.heroku.auth
     if (!auth) return this.error('not logged in')
-    this.log(`Pushing to ${color.app(app)}`)
+    if (verbose) {
+      this.log(`Pushing to ${color.app(app)}`)
+    } else {
+      ux.action.start(`Pushing to ${color.app(app)}`)
+    }
     const remote = `https://git.heroku.com/${app}.git`
     const args = ['-c', 'credential.https://git.heroku.com.helper=! heroku git:credentials', 'push', remote, `${branch}:master`]
     if (force) args.push('--force')
@@ -54,12 +60,15 @@ export default class Push extends Command {
     let header = ''
     let body = ''
     let failed = false
+    let done = 'done'
+    let error: Error | undefined
+    let success = color.green.underline(`https://${app}.herokuapp.com`) + ' deployed to Heroku'
     cmd.stdout.on('data', (d: string) => process.stdout.write(d))
     let stderr = cmd.stderr.pipe(new LineTransform())
     stderr.once('data', (d: string) => {
       if (d === 'Everything up-to-date') {
         this.log(d)
-        this.warn(`No changes to push.
+        error = new CLIError(`No changes to push
 To create a new release, make a change to the repository, stage them with ${color.cmd('git add FILE')}, commit with ${color.cmd('git commit -m "modified FILE"')}, and push again with ${color.cmd('heroku push')}
 To create an empty release with no changes, use ${color.cmd('git commit --allow-empty')}`)
         return
@@ -73,6 +82,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
           let [, arrow, header] = d.match(/(----->)(.*)/)!
           let c = color.bold
           if (header.trim() === 'Build failed') {
+            body = ''
             failed = true
             c = c.red
           }
@@ -81,7 +91,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         if (d.toLowerCase().match(/^(error|fatal):/)) {
           d = color.red(d)
         }
-        let warning = d.match(/^\s*!\s+(.+)/)
+        let warning = d.match(/^\s*!+\s+(.+)/)
         if (warning) {
           d = warning[1].trim()
           let c = color.yellow
@@ -91,58 +101,106 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         this.log(d)
         return
       }
-      d = d.trim()
+      d = d.replace(new RegExp('\b' as any, 'g'), '')
+      let type: 'normal' | 'warning' | 'error' = 'normal'
+      if (d.startsWith('\u001b[1;31m ')) {
+        type = 'error'
+        d = strip(d)
+      } else if (d.startsWith('\u001b[1;33m ')) {
+        type = 'warning'
+        d = strip(d)
+      }
+      if (d.trimRight() === 'Building source:') {
+        d = '-----> Building source'
+      }
       if (d.startsWith('----->')) {
-        header = d.slice(7).trim().replace(/\.\.\.$/, '')
+        header = d.replace(/^----->/, '').trim().replace(/(…|\.\.\.)$/, '')
         if (header === 'Build failed') {
           failed = true
           ux.action.stop(color.red.bold(`! ${header}`))
           return
         }
-        ux.action.stop()
+        if (header.startsWith('Build succeeded')) {
+          this.log(color.green(header))
+          return
+        }
+        if (!failed) body = color.red(header) + '\n'
+        ux.action.stop(done || 'done')
+        done = 'done'
         ux.action.start(header)
-        body = ''
         return
       }
       if (failed) {
-        if (d.match(/! {5}Push (rejected|failed)/)) {
+        if (d.match(/ ! {5}Push (rejected|failed)/)) {
           failed = false // hide output after this message
           return
         }
-        if (d.startsWith('!\s+')) {
-          d = color.red(d.replace(/^!\s+/, '').trim())
+        if (d.match(/^\s*!+\s*/)) {
+          d = color.red(d.replace(/^\s*!+\s*/, ''))
         }
-        body += d.trim() + '\n'
+        if (d.startsWith('       ')) {
+          d = d.slice(7)
+        }
+        body += d + '\n'
         return
       }
       if (d.match(/^(fatal|error):/i)) {
-        this.log(color.red(d.trim()))
+        this.error(d.replace(/^(fatal|error):/i, '').trim(), {exit: false})
         return
       }
-      if (d.match(/^hint:/)) {
+      if (d.trim().toLowerCase().startsWith('warning')) {
+        if (d.trim() === 'warning Ignored scripts due to flag.') return
+        this.warn(d.trim().replace(/^warning:?/i, '').trim())
+        return
+      }
+      if (d.match(/^\s*!+\s*/)) {
+        if (type === 'error') {
+          this.error(d.replace(/^\s*!+\s*/, '').trim(), {exit: false})
+        } else {
+          this.warn(d.replace(/^\s*!+\s*/, '').trim())
+        }
+        return
+      }
+      if (header === 'Discovering process types') {
+        const match = d.trim().match(/^Procfile declares types\s+->\s+(.+)/)
+        if (match) done = match[1]
+      }
+      if (header === 'Installing binaries') {
+        const match = d.trim().match(/^Downloading and installing (node \d+\.\d+\.\d+)/)
+        if (match) done = match[1]
+      }
+      if (header === 'Compressing') {
+        const match = d.trim().match(/^Done: (.+)/)
+        if (match) done = match[1]
+      }
+      if (header === 'Launching') {
+        let match = d.trim().match(/^Released (v\d+)/)
+        if (match) done = match[1]
+        match = d.trim().match(/^(https:\S+)( deployed to Heroku)/)
+        if (match) success = `${color.green.underline(match[1])}${match[2]}`
+      }
+      let shaOutput = d.trim().match(/[a-f0-9]+\.\.[0-9a-f]+\s+\S+ -> master/)
+      if (shaOutput) {
         this.log(d.trim())
         return
       }
-      if (d.toLowerCase().startsWith('warning')) {
-        if (d === 'warning Ignored scripts due to flag.') return
-        this.warn(d.replace(/^warning/i, '').trim())
-        return
+      if (d.startsWith('       ')) {
+        d = d.slice(7)
       }
-      if (d.match(/^!\s+/)) {
-        this.warn(d.replace(/^!\s+/, '').trim())
-        return
-      }
-      ux.action.status = d
+      ux.action.status = d.trim()
+      body += d + '\n'
     }).setEncoding('utf8')
     try {
       await cmd
+      if (error) throw error
     } catch (err) {
       if (!err.failed || !err.code) throw err
       let msg = body.trim() || 'Build failed'
       if (!verbose) msg += `\n\nSee full build output with ${color.cmd('heroku push --verbose')}`
       this.error(msg)
     }
-    ux.action.stop()
+    ux.action.stop(done)
+    if (success) this.log(success)
   }
 
   private async dirty() {
