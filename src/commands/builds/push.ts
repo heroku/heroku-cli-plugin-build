@@ -9,6 +9,11 @@ import LineTransform from '../../line_transform'
 const currentBranch = execa.sync('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout
 const strip = require('strip-ansi')
 
+function removeBackspaces(str: string): string {
+  while (str.indexOf('\b') !== -1) str = str.replace(/.?\x08/, '')
+  return str
+}
+
 export default class Push extends Command {
   static aliases = ['push']
   static description = 'deploy code to Heroku'
@@ -101,7 +106,7 @@ To create an empty release with no changes, use ${color.cmd('git commit --allow-
         this.log(d)
         return
       }
-      d = d.replace(new RegExp('\b' as any, 'g'), '')
+      d = removeBackspaces(d)
       let type: 'normal' | 'warning' | 'error' = 'normal'
       if (d.startsWith('\u001b[1;31m ')) {
         type = 'error'
