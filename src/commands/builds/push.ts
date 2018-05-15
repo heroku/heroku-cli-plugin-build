@@ -6,7 +6,6 @@ import * as execa from 'execa'
 
 import LineTransform from '../../line_transform'
 
-const currentBranch = execa.sync('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout
 const strip = require('strip-ansi')
 
 function removeBackspaces(str: string): string {
@@ -29,6 +28,7 @@ export default class Push extends Command {
   }
 
   async run() {
+    const currentBranch = execa.sync('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout
     if (this.config.channel === 'stable') this.error('heroku push is only available on beta')
     const {flags} = this.parse(Push)
     if (!this.heroku.auth) await this.heroku.login()
