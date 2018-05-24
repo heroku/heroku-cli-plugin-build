@@ -36,6 +36,7 @@
     "node": ">=8.0.0"
   },
   "files": [
+    "/yarn.lock",
     "/lib",
     "/oclif.manifest.json"
   ],
